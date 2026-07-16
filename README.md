@@ -1,2 +1,151 @@
-# HEAD-
-Κεφάλι AI — Talking animatronic head that brings ancient Greek philosophers to life for kids, in Greek. Raspberry Pi + XRP robot + Claude AI + ElevenLabs + InMoov. Mellon Lab, Piraeus 
+# Κεφάλι AI — Πακέτο λογισμικού (Pi = εγκέφαλος, XRP = κινήσεις)
+
+Νέα αρχιτεκτονική:
+- **Raspberry Pi 3 B+ = εγκέφαλος**: QR, ερώτηση, Claude, φωνή, ηχείο
+- **XRP = ελεγκτής κινήσεων**: σιαγόνα HK15298 (θύρα servo 1) + άλλα σέρβο
+- Σύνδεση Pi ↔ XRP: **καλώδιο USB-C** (σειριακή) — απλό και ακαριαίο
+- Χωρίς LED — τα μάτια είναι αυτόνομα modules που δεν συνδέονται πουθενά
+
+---
+
+## Δομή
+
+```
+kefali-ai/
+├── kefali_ai.py            ← ΚΥΡΙΟ πρόγραμμα (Φάση 1 & 2)
+├── config.py               ← ΟΛΕΣ οι ρυθμίσεις (pins, personas, φωνές, κλειδιά)
+├── kleidia.txt             ← (το φτιάχνεις ΕΣΥ — δες παρακάτω, ΔΕΝ το μοιράζεσαι)
+├── modules/
+│   ├── connectivity.py     ← έλεγχος internet (online/offline)
+│   ├── brain.py            ← εγκέφαλος: Claude (online) / Ollama (offline)
+│   ├── voice.py            ← φωνή: ElevenLabs (online) / Piper (offline)
+│   ├── ears.py             ← ερώτηση: πληκτρολόγιο (Φ1) / μικρόφωνο+Whisper (Φ2)
+│   ├── xrp_link.py         ← γέφυρα προς το XRP: εντολές κίνησης + συγχρονισμός
+│   └── qr_listener.py      ← ακρόαση ESP32-CAM στη σειριακή
+├── esp32cam/
+│   └── kefali_qr_scanner.ino  ← sketch για το ESP32-CAM (σαρωτής QR)
+└── xrp/
+    └── main.py             ← MicroPython για το XRP (δέχεται εντολές, κινεί σέρβο)
+```
+
+---
+
+## 1. Το κλειδί API — ΤΙ ΠΡΕΠΕΙ ΝΑ ΚΑΝΕΙΣ (μία φορά)
+
+Το κλειδί που έφτιαξες στο console.anthropic.com για το Colab είναι το
+ΙΔΙΟ που θα βάλεις κι εδώ — αλλά ΕΓΩ δεν μπορώ να το βάλω· είναι
+αποθηκευμένο μόνο στα Colab Secrets σου. Κάνε ένα από τα δύο:
+
+**Τρόπος Α (πιο απλός):** φτιάξε ένα αρχείο `kleidia.txt` μέσα στον
+φάκελο `kefali-ai`, με περιεχόμενο:
+
+```
+ANTHROPIC_API_KEY=sk-ant-ΤΟ-ΚΛΕΙΔΙ-ΣΟΥ
+ELEVENLABS_API_KEY=ΤΟ-ΚΛΕΙΔΙ-ELEVENLABS   (προαιρετικό)
+```
+
+Το πρόγραμμα το διαβάζει αυτόματα. ⚠️ Μην το ανεβάσεις/στείλεις πουθενά.
+
+**Τρόπος Β:** μεταβλητές περιβάλλοντος στο τερματικό:
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export ELEVENLABS_API_KEY="..."
+```
+
+Αν έχεις χάσει το κλειδί: console.anthropic.com → API Keys → φτιάχνεις
+καινούριο (το παλιό δεν ξαναεμφανίζεται ολόκληρο).
+
+## 2. Εγκατάσταση στο Raspberry Pi 3 B+
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg alsa-utils
+
+# Στο Raspberry Pi OS (Bookworm) το pip θέλει την επιπλέον σημαία:
+pip install anthropic pyserial --break-system-packages
+# Για Φάση 2 (μικρόφωνο):
+pip install faster-whisper --break-system-packages
+# Για offline φωνή (προαιρετικά):
+#   Piper: κατέβασε binary + μοντέλο el_GR-rapunzelina-low
+#          και όρισε τη διαδρομή στο config.py (PIPER_MODEL)
+```
+
+⚠️ **Ειλικρινής σημείωση για το Pi 3 B+ (1GB RAM):** η online λειτουργία
+(Claude + ElevenLabs) δουλεύει μια χαρά — είναι απλώς κλήσεις δικτύου.
+Το **Ollama όμως ΔΕΝ χωράει** σε 1GB RAM, οπότε δεν υπάρχει offline
+εγκέφαλος σε αυτή την πλακέτα: **το κεφάλι χρειάζεται internet** για να
+απαντά. Το Piper (offline φωνή) δουλεύει αλλά αργά, και το faster-whisper
+μόνο με μοντέλο "tiny". Αν αργότερα βρεθεί Pi 5, όλα τα offline
+ξεκλειδώνουν χωρίς αλλαγή κώδικα.
+
+## 3. Ρυθμίσεις πριν την πρώτη εκτέλεση (`config.py`)
+
+- `PHASE = 1` (πληκτρολόγιο) ή `2` (μικρόφωνο)
+- `eleven_voice_id` για κάθε φιλόσοφο (από το ElevenLabs Voice Library)
+- **Σιαγόνα:** ρύθμισε `JAW_CLOSED_DEG` / `JAW_OPEN_DEG` με προσεκτική
+  δοκιμή — λάθος όρια ζορίζουν τον μηχανισμό. Εύρος 0°–20° κατά InMoov.
+  (Ίδιες τιμές και στην αρχή του `xrp/main.py`.)
+
+## 4. Καλωδίωση
+
+| Τι | Πού |
+|---|---|
+| Σιαγόνα HK15298 | **Θύρα servo 1 του XRP** |
+| Άλλα σέρβο (μελλοντικά) | Θύρες servo 2, 3, 4 του XRP |
+| XRP ↔ Pi | Καλώδιο USB-C → εμφανίζεται ως `/dev/ttyACM0` |
+| Τροφοδοσία σέρβο | Από την **μπαταρία του XRP** — όχι μόνο USB! Το HK15298 τραβά αρκετό ρεύμα. |
+| Ηχείο | Στην έξοδο ήχου του Pi (3.5mm/USB/HDMI — ό,τι έχεις) |
+| ESP32-CAM | USB → `/dev/ttyUSB0` |
+
+Στα GPIO του Pi δεν συνδέεται πλέον **τίποτα**. Τα αυτόνομα eye modules
+δεν συνδέονται πουθενά — μπαίνουν ως έχουν. Η κατάσταση online/offline
+φαίνεται στην οθόνη του τερματικού.
+
+### Εγκατάσταση στο XRP (μία φορά)
+
+1. Άνοιξε το Thonny, σύνδεσε το XRP
+2. Αποθήκευσε το `xrp/main.py` στο XRP **ως `main.py`** → τρέχει αυτόματα
+   σε κάθε εκκίνηση
+3. **Κλείσε το Thonny** πριν τρέξεις το πρόγραμμα στο Pi — δεν μπορούν
+   δύο προγράμματα να κρατούν την ίδια σειριακή θύρα
+4. Δοκιμή σύνδεσης από το Pi: το `kefali_ai.py` γράφει
+   «[XRP] Συνδέθηκα…» αν όλα είναι εντάξει
+
+## 5. Εκτέλεση
+
+```bash
+python3 kefali_ai.py
+```
+
+- Σκανάρισμα QR από το ESP32-CAM → αλλάζει φιλόσοφο αυτόματα
+- `!1` / `!2` → αλλαγή φιλοσόφου από πληκτρολόγιο (αν λείπει το ESP32)
+- Κενό Enter → έξοδος
+- Τρέχει και σε laptop **χωρίς hardware** (λειτουργία προσομοίωσης) —
+  ιδανικό για να δοκιμάσεις πρώτα τον «εγκέφαλο».
+
+## 6. ESP32-CAM (σαρωτής QR)
+
+1. Arduino IDE → ESP32 core **3.2.1** (όχι 3.3.0)
+2. Βιβλιοθήκη **ESP32QRCodeReader** — το διορθωμένο fork (Random Nerd Tutorials)
+3. Tools: Board = AI Thinker ESP32-CAM, Partition = Huge APP, PSRAM = Enabled
+4. Ανέβασε το `esp32cam/kefali_qr_scanner.ino`
+5. Φτιάξε QR codes με περιεχόμενο **ακριβώς** `aristotelis` και `arximidis`
+
+## 7. Πώς δουλεύει ο συγχρονισμός σιαγόνας
+
+Ο ήχος παίζει στο ηχείο του Pi. Το Pi χωρίζει τη φωνή σε καρέ των 50 ms,
+μετρά την ένταση κάθε καρέ και στέλνει στο XRP μία εντολή `J:<0-255>` ανά
+καρέ. Το XRP απλώς μετατρέπει την ένταση σε γωνία 0°–20° (με λίγο
+«μαλάκωμα» για ομαλή κίνηση). Έτσι το «βαρύ» κομμάτι μένει στο Pi και το
+XRP κάνει μόνο ό,τι του ταιριάζει: κίνηση.
+
+Για μελλοντικά σέρβο (χέρια, λαιμός κ.λπ.) υπάρχει ήδη έτοιμη εντολή:
+στο Pi `xrp.set_servo(2, 45)` → το σέρβο της θύρας 2 πάει στις 45°.
+
+## 8. Τι μένει σε σένα
+
+- Το `kleidia.txt` με το κλειδί σου (βήμα 1)
+- Voice IDs ElevenLabs στο `config.py`
+- Ρύθμιση ορίων σιαγόνας στο `config.py` ΚΑΙ στο `xrp/main.py` (dry-fit πρώτα!)
+- Μπαταρία στο XRP όταν κουμπώσει το HK15298

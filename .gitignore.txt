@@ -1,0 +1,4 @@
+kleidia.txt
+__pycache__/
+*.pyc
+/tmp
