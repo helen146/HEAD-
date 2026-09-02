@@ -1,7 +1,7 @@
 # Kefali AI — Software Package (Pi = brain, XRP = motion)
 
 New architecture:
-- **Raspberry Pi 3 B+ = brain**: QR, question, Claude, voice, speaker
+- **Raspberry Pi 4 = brain**: QR, question, Claude, voice, speaker
 - **XRP = motion controller**: jaw HK15298 (servo port 1) + other servos
 - Pi ↔ XRP connection: **USB-C cable** (serial) — simple and instant
 - No LEDs — the eyes are autonomous modules that connect to nothing
