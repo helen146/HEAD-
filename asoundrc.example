@@ -1,0 +1,12 @@
+# ~/.asoundrc: send all audio to the Pi's 3.5 mm jack, chosen by card NAME
+# ("Headphones"), not by number. ALSA card numbers can change between
+# reboots; names don't.
+#   cp deploy/asoundrc.example ~/.asoundrc
+pcm.!default {
+    type plug
+    slave.pcm "hw:Headphones"
+}
+ctl.!default {
+    type hw
+    card Headphones
+}

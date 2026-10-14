@@ -1,0 +1,25 @@
+# systemd service: starts Kefali AI on boot and restarts it if it crashes.
+# Replace YOUR_USER with the Pi's username, then:
+#   sudo cp deploy/kefali.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kefali.service
+# Logs:  journalctl -u kefali.service -f
+
+[Unit]
+Description=Kefali AI
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/home/YOUR_USER/kefali-ai
+# Give the camera, sound cards and Wi-Fi time to come up after boot
+ExecStartPre=/bin/sleep 10
+ExecStart=/home/YOUR_USER/kefali-ai/bin/python3 /home/YOUR_USER/kefali-ai/kefali_ai.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
