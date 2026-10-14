@@ -1,0 +1,8 @@
+# Python packages for the Raspberry Pi (install inside the project's venv).
+# OpenCV comes from apt instead: sudo apt install -y python3-opencv
+# and the venv is created with --system-site-packages so it can see it.
+anthropic
+faster-whisper
+pyserial
+pyzbar
+requests

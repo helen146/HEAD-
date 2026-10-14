@@ -1,0 +1,17 @@
+# API keys: never commit
+kleidia.txt
+
+# Generated thinking-phrase audio (made by ftiaxe_frasis.py)
+audio_frasis/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Python virtual environment created inside the project folder
+/bin/
+/lib/
+/lib64/
+/include/
+/share/
+/pyvenv.cfg
