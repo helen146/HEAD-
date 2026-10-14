@@ -1,2 +1,0 @@
-ANTHROPIC_API_KEY=sk-ant-ΒΑΛΕ-ΤΟ-ΔΙΚΟ-ΣΟΥ
-ELEVENLABS_API_KEY=ΒΑΛΕ-ΤΟ-ΔΙΚΟ-ΣΟΥ
