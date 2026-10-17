@@ -30,6 +30,7 @@ config.py. Αν όμως ορίσεις κάτι στο config, εκείνο υ�
 import array
 import math
 import subprocess
+import time
 import wave
 
 import config
@@ -52,6 +53,7 @@ MIC_THRESHOLD = _cfg("MIC_THRESHOLD", 500)     # ευαισθησία (0–32767
 SILENCE_STOP_SEC = _cfg("SILENCE_STOP_SEC", 1.2)
 MAX_SPEECH_SEC = _cfg("MAX_SPEECH_SEC", 15)
 MAX_WAIT_SEC = _cfg("MAX_WAIT_SEC", 30)
+WHISPER_BEAM_SIZE = _cfg("WHISPER_BEAM_SIZE", 1)   # 1 = γρήγορο, 5 = πιο προσεκτικό
 
 # «Προθέρμανση» του μοντέλου: του λέμε τι είδους ελληνικά να περιμένει.
 # Βοηθά πολύ με ονόματα και όρους που αλλιώς τα ακούει λάθος.
@@ -95,6 +97,7 @@ def _normalize(raw: bytes) -> bytes:
 class Ears:
     def __init__(self, names_hint=None):
         self._whisper = None
+        self.last_stt_sec = None   # πόσο κράτησε η τελευταία αναγνώριση
         self._hint = HINT_INTRO + (names_hint or HINT_DEFAULT_NAMES) + HINT_EXTRA
 
     def warmup(self):
@@ -121,6 +124,7 @@ class Ears:
         raw = self._record_until_silence(qr)
         if raw is None:
             return ""
+        t_start = time.monotonic()
 
         raw = _normalize(raw)
         with wave.open(TMP_REC, "wb") as w:
@@ -134,13 +138,15 @@ class Ears:
         segments, _ = self._whisper.transcribe(
             TMP_REC,
             language="el",
-            beam_size=5,                    # πιο προσεκτική αναζήτηση
+            beam_size=WHISPER_BEAM_SIZE,    # 1 = πιο γρήγορο (δες config.py)
+            without_timestamps=True,        # δεν χρειαζόμαστε χρόνους λέξεων
             initial_prompt=self._hint,      # «περίμενε ελληνικά, φιλοσοφία»
             condition_on_previous_text=False,
             vad_filter=True,
             temperature=0.0,                # χωρίς τυχαιότητα → σταθερά αποτελέσματα
         )
         text = " ".join(s.text.strip() for s in segments).strip()
+        self.last_stt_sec = time.monotonic() - t_start
 
         if not text:
             print("[Ears] Δεν κατάλαβα — ξαναπές το πιο καθαρά.")

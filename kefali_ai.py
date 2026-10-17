@@ -55,8 +55,9 @@ def main():
     online = is_online()
     print(f"Λειτουργία: {'ONLINE (Claude + ElevenLabs)' if online else 'OFFLINE'}")
 
-    # Φορτώνουμε το μοντέλο ομιλίας ΤΩΡΑ, όχι μπροστά στα παιδιά
+    # Φορτώνουμε το μοντέλο ομιλίας και τον Claude ΤΩΡΑ, όχι μπροστά στα παιδιά
     ears.warmup()
+    brain.warmup()
 
     persona_id = config.DEFAULT_PERSONA if config.DEFAULT_PERSONA in personas else persona_keys[0]
     history = []
@@ -105,6 +106,7 @@ def main():
 
             # 2) Ερώτηση μαθητή (η ακρόαση διακόπτεται αν σκαναριστεί QR)
             question = ears.listen(qr)
+            t_question = time.monotonic()   # μόλις τελείωσε η αναγνώριση
 
             # Κενή ερώτηση: στη Φάση 2 συνεχίζουμε (μπορεί να μη μίλησε κανείς),
             # στη Φάση 1 σημαίνει έξοδο.
@@ -125,19 +127,31 @@ def main():
             # 3) Σκέψη — η φράση αναμονής γεμίζει τη σιωπή όσο περιμένουμε
             print("💭 Ο φιλόσοφος σκέφτεται…")
             filler = start_thinking_phrase(persona_id)
-            online = is_online()
+            online = is_online()      # ένας έλεγχος ανά ερώτηση, όχι δύο
+            t_think = time.monotonic()
             answer = brain.think(persona["prompt"], history, question, online)
+            think_sec = time.monotonic() - t_think
             print(f"\n🗣️  {persona['name']}: {answer}\n")
 
             history.append({"role": "user", "content": question})
             history.append({"role": "assistant", "content": answer})
             history[:] = history[-2 * config.HISTORY_MAX_TURNS :]
 
-            # 4) Φωνή + σιαγόνα — πρώτα τελειώνει η φράση αναμονής,
-            #    ώστε να μη μιλάνε δύο φωνές μαζί
+            # 4) Φωνή + σιαγόνα. Η φωνή της απάντησης φτιάχνεται ΟΣΟ ακόμα
+            #    παίζει η φράση αναμονής· μετά περιμένουμε να τελειώσει η
+            #    φράση, ώστε να μη μιλάνε δύο φωνές μαζί.
+            t_voice = time.monotonic()
+            wav = voice.speak_to_wav(answer, persona["voice_id"], online)
+            voice_sec = time.monotonic() - t_voice
             if filler:
                 filler.join()
-            speak(answer, persona)
+            stt = ears.last_stt_sec or 0.0
+            wait_sec = stt + (time.monotonic() - t_question)
+            print(
+                f"⏱  αναγνώριση {stt:.1f} s · Claude {think_sec:.1f} s · "
+                f"φωνή {voice_sec:.1f} s · αναμονή ως την απάντηση {wait_sec:.1f} s"
+            )
+            play_with_jaw(wav, xrp)
 
     except KeyboardInterrupt:
         print("\nΑντίο! 👋")

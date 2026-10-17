@@ -28,6 +28,16 @@ class Brain:
     def __init__(self):
         self._anthropic = None  # φορτώνεται μόνο αν χρειαστεί
 
+    def warmup(self):
+        """Φορτώνει τη βιβλιοθήκη του Claude ΤΩΡΑ, ώστε η πρώτη ερώτηση
+        μπροστά στα παιδιά να μην περιμένει το import."""
+        if self._anthropic is None and config.ANTHROPIC_API_KEY:
+            try:
+                from anthropic import Anthropic
+                self._anthropic = Anthropic(api_key=config.ANTHROPIC_API_KEY)
+            except Exception as e:
+                print(f"[Brain] Δεν φόρτωσε ο Claude ({e}) — θα ξαναδοκιμάσω στην ερώτηση.")
+
     # ---------- Δημόσια συνάρτηση ----------
     def think(self, system_prompt: str, history: list, question: str, online: bool) -> str:
         """

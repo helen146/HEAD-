@@ -53,11 +53,13 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY") or _kleidia.get("ELEVE
 # ΜΟΝΤΕΛΑ
 # ─────────────────────────────────────────────
 ANTHROPIC_MODEL = "claude-sonnet-4-6"        # online εγκέφαλος
+                                             # πιο γρήγορος: "claude-haiku-5-5"
 OLLAMA_MODEL = "llama3.2:3b"                 # offline εγκέφαλος (αρχικό σχέδιο —
 OLLAMA_URL = "http://localhost:11434/api/chat"  # δεν χωράει στα 2 GB του Pi 4)
 ELEVEN_MODEL = "eleven_flash_v2_5"           # online φωνή — πιο γρήγορη από
                                              # το eleven_multilingual_v2
 WHISPER_SIZE = "base"                        # STT: το "small" ήταν πολύ αργό στο Pi 4
+WHISPER_BEAM_SIZE = 1                        # 1 = γρήγορο · 5 = πιο προσεκτικό, πιο αργό
 
 # Piper (offline φωνή, μία ελληνική φωνή για όλους).
 # Ψάχνει στο ~/piper του χρήστη που τρέχει το πρόγραμμα — ΟΧΙ σε σταθερό
