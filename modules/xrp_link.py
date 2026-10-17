@@ -18,7 +18,10 @@
 Χρειάζεται: pip install pyserial
 """
 
+import os
 import subprocess
+import tempfile
+import threading
 import time
 import wave
 
@@ -28,6 +31,7 @@ import config
 class XRPLink:
     def __init__(self):
         self._ser = None
+        self._write_lock = threading.Lock()
         try:
             import serial
             self._ser = serial.Serial(
@@ -41,13 +45,18 @@ class XRPLink:
                 raise
             print(f"[XRP] Δεν βρέθηκε XRP ({e}) → λειτουργία προσομοίωσης.")
 
+    @property
+    def connected(self):
+        return self._ser is not None
+
     # ---------- βασική αποστολή ----------
     def _send(self, line: str):
         if self._ser:
-            try:
-                self._ser.write((line + "\n").encode("ascii"))
-            except Exception as e:
-                print(f"[XRP] Σφάλμα αποστολής: {e}")
+            with self._write_lock:
+                try:
+                    self._ser.write((line + "\n").encode("ascii"))
+                except Exception as e:
+                    print(f"[XRP] Σφάλμα αποστολής: {e}")
 
     # ---------- δημόσιες εντολές ----------
     def jaw_level(self, level: float):
@@ -104,15 +113,34 @@ def play_with_jaw(wav_path: str, xrp: XRPLink):
     στο XRP — η σιαγόνα «κουνιέται στον ρυθμό» της φωνής."""
     if not wav_path:
         return
-    env = wav_envelope(wav_path)
-    proc = subprocess.Popen(["aplay", "-q", wav_path])
-    t0 = time.monotonic()
-    for i, level in enumerate(env):
-        xrp.jaw_level(level)
-        # Κοιμόμαστε μέχρι την ΑΠΟΛΥΤΗ ώρα του επόμενου καρέ (όχι σκέτο sleep)
-        target = t0 + (i + 1) * config.JAW_FRAME_SEC
-        delay = target - time.monotonic()
-        if delay > 0:
-            time.sleep(delay)
-    xrp.jaw_level(0)
-    proc.wait()
+    with wave.open(wav_path, "rb") as source:
+        rate, channels = source.getframerate(), source.getnchannels()
+    fd, normalized_path = tempfile.mkstemp(prefix="kefali_play_", suffix=".wav")
+    os.close(fd)
+    try:
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", wav_path,
+                 "-af", "loudnorm=I=-18:TP=-1.5:LRA=9",
+                 "-ar", str(rate), "-ac", str(channels),
+                 "-c:a", "pcm_s16le", normalized_path],
+                check=True,
+            )
+            playback_path = normalized_path
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"[Audio] Loudness adjustment failed ({exc}); playing original WAV.")
+            playback_path = wav_path
+        env = wav_envelope(playback_path)
+        proc = subprocess.Popen(["aplay", "-q", "-D", config.SPEAKER_DEVICE, playback_path])
+        t0 = time.monotonic()
+        for i, level in enumerate(env):
+            xrp.jaw_level(level)
+            target = t0 + (i + 1) * config.JAW_FRAME_SEC
+            delay = target - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+        if proc.wait() != 0:
+            print(f"[Audio] Playback failed on {config.SPEAKER_DEVICE}.")
+    finally:
+        xrp.jaw_level(0)
+        os.unlink(normalized_path)
