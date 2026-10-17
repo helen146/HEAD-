@@ -9,12 +9,14 @@ A child holds a QR card up to the camera, the persona introduces itself, and fro
 | | Station | File | What happens |
 |---|---|---|---|
 | 1 | The card | `modules/qr_listener.py` | A background thread reads QR cards from the webcam (OpenCV + pyzbar). The card's text is the persona's file name, e.g. `aristotelis`. |
-| 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the webcam's microphone: recording starts when someone speaks, keeps the 0.3 s before it, and stops after 1.2 s of silence. faster-whisper (`base`) transcribes it on the Pi. |
-| 3 | Thinking | `modules/brain.py` | The question and the persona's prompt go to the Claude API. A pre-recorded "thinking" phrase fills the wait. |
-| 4 | Speaking | `modules/voice.py` | ElevenLabs gives each persona its own voice. If the cloud voice fails, Piper speaks locally. |
+| 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the webcam's microphone: recording starts when someone speaks, keeps the 0.3 s before it, and stops after 1.2 s of silence. faster-whisper (`base`, beam size 1 for speed) transcribes it on the Pi. |
+| 3 | Thinking | `modules/brain.py` | The question and the persona's prompt go to the Claude API (`claude-haiku-5-5`, the fastest current model). Each persona answers in at most 5 short sentences, direct answer first. A pre-recorded "thinking" phrase fills the wait. |
+| 4 | Speaking | `modules/voice.py` | ElevenLabs (`eleven_flash_v2_5`) gives each persona its own voice; the answer's voice is made while the thinking phrase is still playing. If the cloud voice fails, Piper speaks locally. |
 | 5 | The jaw | `modules/xrp_link.py`, `xrp/main.py` | While the answer plays, the Pi sends the XRP the loudness of each 50 ms of speech; the XRP turns it into a jaw angle between 0° and 20°. |
 
 The jaw follows the loudness of the voice (amplitude-envelope jaw sync); it is not phoneme-level lip-sync.
+
+After every answer the log shows how long each stage took, e.g. `⏱ αναγνώριση 1.5 s · Claude 2.1 s · φωνή 1.0 s · αναμονή 3.9 s` (recognition, Claude, voice, total wait). Watch it with `journalctl -u kefali.service -f`.
 
 ## Hardware
 
@@ -87,6 +89,17 @@ Save `xrp/main.py` to the XRP as `main.py` (with Thonny or mpremote); it runs on
 ## Adding a persona
 
 Copy `characters/_protypo.json` to a new file (e.g. `pythagoras.json`), fill in the name, introduction, ElevenLabs voice, prompt and thinking phrases, and print a QR code whose text is the file name (`pythagoras`). No code changes. Full guide, in Greek: [README_PROSOPA.md](README_PROSOPA.md).
+
+## Speed settings
+
+All in `config.py`:
+
+| Setting | Now | Trade-off |
+|---|---|---|
+| `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Fastest. `claude-sonnet-4-6` (the previous model) may give richer answers but is slower. |
+| `WHISPER_BEAM_SIZE` | `1` | `5` is more careful in Greek but slower. |
+| `SILENCE_STOP_SEC` | `1.2` | Lower ends recording sooner, but may cut off a child who pauses. |
+| Sentence limit | 5 | Set in each `characters/*.json` prompt; longer answers take longer to write and to voice. |
 
 ## Status and limitations
 
