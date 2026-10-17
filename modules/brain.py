@@ -16,6 +16,14 @@ import urllib.request
 import config
 
 
+ASR_TRANSCRIPT_GUIDANCE = (
+    "Το μήνυμα του μαθητή προέρχεται από τοπική αναγνώριση ομιλίας. "
+    "Αν ένα όνομα ή μία φράση έχει σαφή φωνητική αντιστοιχία στα συμφραζόμενα, "
+    "πες σύντομα τι κατάλαβες και απάντησε. Αν δεν είναι σαφές, ζήτησε επανάληψη. "
+    "Μην επινοείς άγνωστα πρόσωπα."
+)
+
+
 def clean_for_speech(text: str) -> str:
     """Καθαρίζει σύμβολα markdown (**, ##, - κ.λπ.) — αλλιώς το TTS τα προφέρει!"""
     text = re.sub(r"[*_`#]+", "", text)          # έμφαση, κεφαλίδες, κώδικας
@@ -45,6 +53,8 @@ class Brain:
         Επιστρέφει το κείμενο της απάντησης.
         """
         messages = history + [{"role": "user", "content": question}]
+        if config.PHASE >= 2:
+            system_prompt += "\n\n" + ASR_TRANSCRIPT_GUIDANCE
         if online and config.ANTHROPIC_API_KEY:
             try:
                 return clean_for_speech(self._think_anthropic(system_prompt, messages))
@@ -60,10 +70,19 @@ class Brain:
         resp = self._anthropic.messages.create(
             model=config.ANTHROPIC_MODEL,
             max_tokens=600,   # αρκετό για 5 σύντομες ελληνικές προτάσεις
+            thinking={"type": "disabled"},  # Haiku 5.5: γρήγορη ομιλία χωρίς σκέψη
             system=system_prompt,
             messages=messages,
         )
-        return resp.content[0].text.strip()
+        if resp.stop_reason == "max_tokens":
+            raise RuntimeError("Η απάντηση του Claude κόπηκε στο όριο tokens")
+        text = " ".join(
+            block.text for block in resp.content
+            if block.type == "text" and block.text
+        ).strip()
+        if not text:
+            raise RuntimeError("Ο Claude δεν επέστρεψε κείμενο")
+        return text
 
     # ---------- Offline: Ollama ----------
     def _think_ollama(self, system_prompt: str, messages: list) -> str:

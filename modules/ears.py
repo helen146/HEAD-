@@ -49,7 +49,9 @@ def _cfg(name, default):
 
 MIC_DEVICE = _cfg("MIC_DEVICE", "plughw:Camera,0")   # με ΟΝΟΜΑ κάρτας, όχι αριθμό
 WHISPER_SIZE = _cfg("WHISPER_SIZE", "base")
+STT_PROVIDER = _cfg("STT_PROVIDER", "whisper")
 MIC_THRESHOLD = _cfg("MIC_THRESHOLD", 500)     # ευαισθησία (0–32767)
+MIC_START_CHUNKS = _cfg("MIC_START_CHUNKS", 1)
 SILENCE_STOP_SEC = _cfg("SILENCE_STOP_SEC", 1.2)
 MAX_SPEECH_SEC = _cfg("MAX_SPEECH_SEC", 15)
 MAX_WAIT_SEC = _cfg("MAX_WAIT_SEC", 30)
@@ -59,12 +61,9 @@ WHISPER_BEAM_SIZE = _cfg("WHISPER_BEAM_SIZE", 1)   # 1 = γρήγορο, 5 = π�
 # Βοηθά πολύ με ονόματα και όρους που αλλιώς τα ακούει λάθος.
 # Τα ονόματα των φιλοσόφων έρχονται από τα αρχεία characters/, οπότε
 # ένας νέος χαρακτήρας «διδάσκει» αυτόματα και το όνομά του στο whisper.
-HINT_INTRO = "Ερωτήσεις μαθητών προς αρχαίους Έλληνες φιλοσόφους. "
 HINT_DEFAULT_NAMES = "Αριστοτέλης, Αρχιμήδης, Θεανώ. "
-HINT_EXTRA = (
-    "Πυθαγόρας, Πλάτωνας, Σωκράτης. "
-    "Φιλοσοφία, μαθηματικά, ευτυχία, αρετή, γεωμετρία, αριθμοί, μοχλός."
-)
+HINT_EXTRA = "Αριστοτέλη, πώς σε λένε; Αρχιμήδη, πώς σε λένε; Θεανώ, πώς σε λένε;"
+
 
 
 def _rms(raw: bytes) -> float:
@@ -98,10 +97,14 @@ class Ears:
     def __init__(self, names_hint=None):
         self._whisper = None
         self.last_stt_sec = None   # πόσο κράτησε η τελευταία αναγνώριση
-        self._hint = HINT_INTRO + (names_hint or HINT_DEFAULT_NAMES) + HINT_EXTRA
+        self._hint = (names_hint or HINT_DEFAULT_NAMES) + HINT_EXTRA
+        if STT_PROVIDER == "elevenlabs":
+            print("[Ears] Αναγνώριση: ElevenLabs Scribe v2 (ελληνικά)")
 
-    def warmup(self):
+    def warmup(self, force=False):
         if config.PHASE < 2 or self._whisper is not None:
+            return
+        if STT_PROVIDER == "elevenlabs" and not force:
             return
         print(f"[Ears] Φορτώνω το μοντέλο ακρόασης «{WHISPER_SIZE}» (μία φορά)…")
         from faster_whisper import WhisperModel
@@ -133,27 +136,57 @@ class Ears:
             w.setframerate(RATE)
             w.writeframes(raw)
 
-        self.warmup()
         print("[Ears] Καταλαβαίνω τι είπες…")
-        segments, _ = self._whisper.transcribe(
-            TMP_REC,
-            language="el",
-            beam_size=WHISPER_BEAM_SIZE,    # 1 = πιο γρήγορο (δες config.py)
-            without_timestamps=True,        # δεν χρειαζόμαστε χρόνους λέξεων
-            initial_prompt=self._hint,      # «περίμενε ελληνικά, φιλοσοφία»
-            condition_on_previous_text=False,
-            vad_filter=True,
-            temperature=0.0,                # χωρίς τυχαιότητα → σταθερά αποτελέσματα
-        )
-        text = " ".join(s.text.strip() for s in segments).strip()
+        if STT_PROVIDER == "elevenlabs":
+            try:
+                text = self._transcribe_elevenlabs(TMP_REC)
+            except Exception as exc:
+                print(f"[Ears] ElevenLabs failed ({type(exc).__name__}); using local Whisper.")
+                text = self._transcribe_whisper(TMP_REC)
+        else:
+            text = self._transcribe_whisper(TMP_REC)
         self.last_stt_sec = time.monotonic() - t_start
 
-        if not text:
+        words = [word.casefold().strip(".,!?;:«»") for word in text.split()]
+        if len(words) < 2 or (len(words) >= 10 and len(set(words)) <= len(words) // 3):
             print("[Ears] Δεν κατάλαβα — ξαναπές το πιο καθαρά.")
             return ""
 
         print(f"📝 Άκουσα: «{text}»")
         return text
+
+    def _transcribe_elevenlabs(self, path):
+        import requests
+
+        if not config.ELEVENLABS_API_KEY:
+            raise RuntimeError("ElevenLabs API key unavailable")
+        with open(path, "rb") as audio:
+            response = requests.post(
+                "https://api.elevenlabs.io/v1/speech-to-text",
+                headers={"xi-api-key": config.ELEVENLABS_API_KEY},
+                data={"model_id": "scribe_v2", "language_code": "ell", "tag_audio_events": "false"},
+                files={"file": ("question.wav", audio, "audio/wav")},
+                timeout=(3, 12),
+            )
+        response.raise_for_status()
+        return response.json()["text"].strip()
+
+    def _transcribe_whisper(self, path):
+        self.warmup(force=True)
+        segments, _ = self._whisper.transcribe(
+            path,
+            language="el",
+            beam_size=WHISPER_BEAM_SIZE,
+            without_timestamps=True,
+            max_new_tokens=64,
+            no_repeat_ngram_size=3,
+            repetition_penalty=1.1,
+            initial_prompt=self._hint,
+            condition_on_previous_text=False,
+            vad_filter=True,
+            temperature=0.0,
+        )
+        return " ".join(segment.text.strip() for segment in segments).strip()
 
     def _record_until_silence(self, qr=None):
         """Περιμένει φωνή, ηχογραφεί, σταματά στη σιωπή.
@@ -169,6 +202,7 @@ class Ears:
         speaking = False
         silence_chunks = 0
         waited_chunks = 0
+        start_chunks = 0
 
         max_silence = int(SILENCE_STOP_SEC * 1000 / CHUNK_MS)
         max_speech = int(MAX_SPEECH_SEC * 1000 / CHUNK_MS)
@@ -194,7 +228,8 @@ class Ears:
                         pre_roll.pop(0)
 
                     waited_chunks += 1
-                    if level > MIC_THRESHOLD:
+                    start_chunks = start_chunks + 1 if level > MIC_THRESHOLD else 0
+                    if start_chunks >= MIC_START_CHUNKS:
                         speaking = True
                         for c in pre_roll:
                             speech.extend(c)

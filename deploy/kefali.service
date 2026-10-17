@@ -6,7 +6,7 @@
 # Logs:  journalctl -u kefali.service -f
 
 [Unit]
-Description=Kefali AI
+Description=Kefali AI - Mellon Lab
 After=network-online.target sound.target
 Wants=network-online.target
 

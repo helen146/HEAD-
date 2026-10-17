@@ -32,6 +32,7 @@ import config
 from modules.brain import Brain
 from modules.connectivity import is_online
 from modules.ears import Ears
+from modules.eye_motion import EyeMotion
 from modules.prosopa import fortose_prosopa, lista_onomaton
 from modules.qr_listener import QRListener
 from modules.voice import Voice
@@ -40,7 +41,7 @@ from modules.xrp_link import XRPLink, play_with_jaw
 
 def main():
     print("═" * 50)
-    print("  ΚΕΦΑΛΙ AI — MellonLab, Πειραιάς")
+    print("  ΚΕΦΑΛΙ AI — Mellon Lab, Πειραιάς")
     print("═" * 50)
 
     personas = fortose_prosopa()
@@ -49,6 +50,7 @@ def main():
     brain, voice = Brain(), Voice()
     ears = Ears(names_hint=lista_onomaton(personas))
     xrp = XRPLink()
+    eyes = EyeMotion(xrp)
     qr = QRListener(personas)
     qr.start()
 
@@ -58,14 +60,20 @@ def main():
     # Φορτώνουμε το μοντέλο ομιλίας και τον Claude ΤΩΡΑ, όχι μπροστά στα παιδιά
     ears.warmup()
     brain.warmup()
+    eyes.start()
 
     persona_id = config.DEFAULT_PERSONA if config.DEFAULT_PERSONA in personas else persona_keys[0]
     history = []
 
+    def play_with_expression(wav):
+        if wav:
+            eyes.glance_now()
+        play_with_jaw(wav, xrp)
+
     def speak(text, persona):
         """Λέει κάτι φωναχτά και κουνά τη σιαγόνα."""
         wav = voice.speak_to_wav(text, persona["voice_id"], is_online())
-        play_with_jaw(wav, xrp)
+        play_with_expression(wav)
 
     def start_thinking_phrase(pid):
         """Παίζει μια έτοιμη φράση αναμονής ΠΑΡΑΛΛΗΛΑ με την κλήση στον
@@ -75,7 +83,7 @@ def main():
         if not files:
             return None
         t = threading.Thread(
-            target=play_with_jaw, args=(random.choice(files), xrp), daemon=True
+            target=play_with_expression, args=(random.choice(files),), daemon=True
         )
         t.start()
         return t
@@ -151,11 +159,12 @@ def main():
                 f"⏱  αναγνώριση {stt:.1f} s · Claude {think_sec:.1f} s · "
                 f"φωνή {voice_sec:.1f} s · αναμονή ως την απάντηση {wait_sec:.1f} s"
             )
-            play_with_jaw(wav, xrp)
+            play_with_expression(wav)
 
     except KeyboardInterrupt:
         print("\nΑντίο! 👋")
     finally:
+        eyes.stop()
         xrp.close()
         qr.close()
 

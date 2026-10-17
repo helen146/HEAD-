@@ -1,6 +1,6 @@
 # Kefali AI
 
-Kefali AI ("kefali" is Greek for "head") is a 3D-printed animatronic head that lets children talk with AI personas of Aristotle, Archimedes and Theano, in Greek. I built it for my students on Pserimos, a small island in the South Aegean, as a museum that travels to the classroom. The head is Gaël Langevin's open-source [InMoov](https://inmoov.fr) design, printed at original scale with my own adaptations. This repository is the software that makes it listen, think, speak and move its jaw.
+Kefali AI ("kefali" is Greek for "head") is a 3D-printed animatronic head that lets children talk with AI personas of Aristotle, Archimedes and Theano, in Greek. I built it for my students on Pserimos, a small island in the South Aegean, as a museum that travels to the classroom. The head is Gaël Langevin's open-source [InMoov](https://inmoov.fr) design, printed at original scale with my own adaptations. This repository is the software that makes it listen, think, speak and move its jaw and eyes.
 
 ## How it works
 
@@ -9,10 +9,10 @@ A child holds a QR card up to the camera, the persona introduces itself, and fro
 | | Station | File | What happens |
 |---|---|---|---|
 | 1 | The card | `modules/qr_listener.py` | A background thread reads QR cards from the webcam (OpenCV + pyzbar). The card's text is the persona's file name, e.g. `aristotelis`. |
-| 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the webcam's microphone: recording starts when someone speaks, keeps the 0.3 s before it, and stops after 1.2 s of silence. faster-whisper (`base`, beam size 1 for speed) transcribes it on the Pi. |
+| 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the separate AB13X USB microphone: recording starts after two voice frames, keeps the 0.3 s before them, and stops after 1.2 s of silence. ElevenLabs Scribe v2 transcribes Greek speech; local faster-whisper (`small`) is the fallback. |
 | 3 | Thinking | `modules/brain.py` | The question and the persona's prompt go to the Claude API (`claude-haiku-5-5`, the fastest current model). Each persona answers in at most 5 short sentences, direct answer first. A pre-recorded "thinking" phrase fills the wait. |
 | 4 | Speaking | `modules/voice.py` | ElevenLabs (`eleven_flash_v2_5`) gives each persona its own voice; the answer's voice is made while the thinking phrase is still playing. If the cloud voice fails, Piper speaks locally. |
-| 5 | The jaw | `modules/xrp_link.py`, `xrp/main.py` | While the answer plays, the Pi sends the XRP the loudness of each 50 ms of speech; the XRP turns it into a jaw angle between 0° and 20°. |
+| 5 | Jaw and eyes | `modules/xrp_link.py`, `modules/eye_motion.py`, `xrp/main.py` | While speech plays, the Pi sends jaw loudness every 50 ms and triggers an eye glance. Small random glances also happen while listening. The head servo is not commanded. |
 
 The jaw follows the loudness of the voice (amplitude-envelope jaw sync); it is not phoneme-level lip-sync.
 
@@ -24,11 +24,12 @@ After every answer the log shows how long each stage took, e.g. `⏱ αναγν�
 |---|---|
 | Raspberry Pi 4, 2 GB | The brain: runs everything in this repo except `xrp/` |
 | XRP controller (MicroPython) | The body: drives the four servos below |
-| Servo, XRP port 1 | Head rotation, left–right (centred at start-up) |
+| Servo, XRP port 1 | Head rotation; currently disconnected and never commanded by the app |
 | HK15298 servo, XRP port 2 | Jaw |
-| USB webcam | QR cards (video) and the microphone (ALSA card `Camera`) |
+| USB webcam | QR cards (video) |
+| AB13X USB microphone | Questions in Greek (ALSA card `Audio`) |
 | Turbo-X SP-110 speaker, mounted in a 3D-printed ear | Voice, from the Pi's 3.5 mm jack (ALSA card `Headphones`) |
-| Two micro servos, XRP ports 3 and 4 | Eyes: left–right (3) and up–down (4), centred at start-up |
+| Two micro servos, XRP ports 3 and 4 | Servo 3 glances left/right around 60° and Servo 4 glances up/down around 50° while listening and speaking; the head servo stays still |
 
 ## Repository layout
 
@@ -39,12 +40,14 @@ characters/           one JSON file per persona (+ _protypo.json template)
 modules/
   prosopa.py          loads the personas from characters/
   qr_listener.py      reads QR cards on a background thread
-  ears.py             voice-activity detection + faster-whisper
+  ears.py             voice-activity detection + Scribe v2 / faster-whisper
   brain.py            Claude API; cleans answers for speech
   voice.py            ElevenLabs, with Piper as fallback
   xrp_link.py         loudness envelope; sends jaw frames in time with playback
+  eye_motion.py       random calibrated eye glances and a glance at speech start
   connectivity.py     checks the internet before each answer
 xrp/main.py           MicroPython that runs on the XRP
+set_eyes.py           set fixed eye angles while Kefali is stopped
 ftiaxe_frasis.py      generates the "thinking" phrases (run once)
 deploy/               systemd service and ALSA config for the Pi
 README_PROSOPA.md     how to add a persona (in Greek)
@@ -56,11 +59,11 @@ Plain text over USB serial (115200 baud), one command per line:
 
 | Command | Meaning |
 |---|---|
-| `J:<0-255>` | Jaw loudness for this 50 ms frame (0 = closed). The XRP maps it to 0–20° and smooths it. |
+| `J:<0-255>` | Jaw loudness for this 50 ms frame (0 = closed). The XRP maps it to 15–50° and smooths it. |
 | `S:<port>:<degrees>` | Move any servo, e.g. `S:3:60` (eyes to centre) |
 | `PING` | The XRP answers `PONG` |
 
-Because it is plain text, each side can be tested alone: typing `J:255` into a serial terminal opens the jaw.
+The XRP limits Servo 2 to 15–50°, Servo 3 to 30–90°, and Servo 4 to 30–60°. To set fixed eye positions while Kefali is stopped, run `./bin/python3 set_eyes.py --horizontal 60 --vertical 50` on the Pi.
 
 ## Setup
 
@@ -77,14 +80,14 @@ python3 -m venv --system-site-packages .
 
 1. **API keys:** copy `kleidia.example.txt` to `kleidia.txt` and add your Anthropic and ElevenLabs keys. `kleidia.txt` is in `.gitignore`; never commit it.
 2. **Offline voice:** put the Piper binary and the `el_GR-rapunzelina-low` voice in `~/piper/`.
-3. **Audio:** `cp deploy/asoundrc.example ~/.asoundrc`. The microphone is set by card name in `config.py` (`MIC_DEVICE`); `arecord -l` lists the names.
+3. **Audio:** `cp deploy/asoundrc.example ~/.asoundrc`. The microphone is set by card name in `config.py` (`MIC_DEVICE`); `arecord -l` lists the names. On the tested Pi, copy `deploy/volume.conf` to `/etc/systemd/system/kefali.service.d/volume.conf` and reload systemd to set the jack output to maximum at each start.
 4. **Thinking phrases:** `./bin/python3 ftiaxe_frasis.py` (once, and again after adding a persona).
 5. **Run:** `./bin/python3 kefali_ai.py`
 6. **Start on boot:** edit `deploy/kefali.service` (replace `YOUR_USER`), then follow the steps at the top of that file.
 
 ### XRP
 
-Save `xrp/main.py` to the XRP as `main.py` (with Thonny or mpremote); it runs on every boot. Close Thonny before starting the Pi program, because two programs cannot share the serial port. Power the servos from the XRP's batteries, not USB alone. Every servo command is clamped to that servo's safe range, so a wrong value cannot strain the mechanism.
+Save `xrp/main.py` to the XRP as `main.py` (with Thonny or mpremote); it runs on every boot. Close Thonny before starting the Pi program, because two programs cannot share the serial port. Power the servos from the XRP's batteries, not USB alone. Servo commands are clamped to the tested ranges for this mechanism; check the physical motion when adapting the project to another head.
 
 ## Adding a persona
 
@@ -97,6 +100,8 @@ All in `config.py`:
 | Setting | Now | Trade-off |
 |---|---|---|
 | `ANTHROPIC_MODEL` | `claude-haiku-5-5` | Fastest. `claude-sonnet-4-6` (the previous model) may give richer answers but is slower. |
+| `STT_PROVIDER` | `elevenlabs` | Scribe v2 needs internet; local Whisper is used when it fails. |
+| `WHISPER_SIZE` | `small` | Local fallback has better Greek recognition but is slow on the Pi. |
 | `WHISPER_BEAM_SIZE` | `1` | `5` is more careful in Greek but slower. |
 | `SILENCE_STOP_SEC` | `1.2` | Lower ends recording sooner, but may cut off a child who pauses. |
 | Sentence limit | 5 | Set in each `characters/*.json` prompt; longer answers take longer to write and to voice. |
