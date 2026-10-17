@@ -21,11 +21,12 @@ The jaw follows the loudness of the voice (amplitude-envelope jaw sync); it is n
 | Part | Role |
 |---|---|
 | Raspberry Pi 4, 2 GB | The brain: runs everything in this repo except `xrp/` |
-| XRP controller (MicroPython) | The body: drives the jaw servo |
-| HK15298 servo, XRP servo port 1 | Jaw |
+| XRP controller (MicroPython) | The body: drives the four servos below |
+| Servo, XRP port 1 | Head rotation, left–right (centred at start-up) |
+| HK15298 servo, XRP port 2 | Jaw |
 | USB webcam | QR cards (video) and the microphone (ALSA card `Camera`) |
 | Turbo-X SP-110 speaker, mounted in a 3D-printed ear | Voice, from the Pi's 3.5 mm jack (ALSA card `Headphones`) |
-| Eye module (two micro servos) | Self-contained; not connected to the Pi or the XRP |
+| Two micro servos, XRP ports 3 and 4 | Eyes: left–right (3) and up–down (4), centred at start-up |
 
 ## Repository layout
 
@@ -54,7 +55,7 @@ Plain text over USB serial (115200 baud), one command per line:
 | Command | Meaning |
 |---|---|
 | `J:<0-255>` | Jaw loudness for this 50 ms frame (0 = closed). The XRP maps it to 0–20° and smooths it. |
-| `S:<port>:<degrees>` | Move any other servo, e.g. `S:2:45` (for future motion) |
+| `S:<port>:<degrees>` | Move any servo, e.g. `S:3:60` (eyes to centre) |
 | `PING` | The XRP answers `PONG` |
 
 Because it is plain text, each side can be tested alone: typing `J:255` into a serial terminal opens the jaw.
@@ -81,7 +82,7 @@ python3 -m venv --system-site-packages .
 
 ### XRP
 
-Save `xrp/main.py` to the XRP as `main.py` (with Thonny or mpremote); it runs on every boot. Close Thonny before starting the Pi program, because two programs cannot share the serial port. Power the servo from the XRP's batteries, not USB alone.
+Save `xrp/main.py` to the XRP as `main.py` (with Thonny or mpremote); it runs on every boot. Close Thonny before starting the Pi program, because two programs cannot share the serial port. Power the servos from the XRP's batteries, not USB alone. Every servo command is clamped to that servo's safe range, so a wrong value cannot strain the mechanism.
 
 ## Adding a persona
 
@@ -99,6 +100,6 @@ Copy `characters/_protypo.json` to a new file (e.g. `pythagoras.json`), fill in 
 - Head: [InMoov](https://inmoov.fr) by Gaël Langevin
 - XRP controller: SparkFun; platform by DEKA and WPI
 - Libraries and services: faster-whisper, Anthropic Claude API, ElevenLabs, Piper, OpenCV, pyzbar
-- Advisor: Dr Anastasios Kollias · Workshop and printers: Mellon Lab, Piraeus
+- Advisor: Dr Anastasios Kollias · Workshop and printers: MellonLab, Piraeus
 
 I used Claude (Anthropic) as a programming assistant: debugging the audio pipeline and the voice-activity detection, sorting out ALSA device naming and the systemd service, and drafting portions of the Python code. I designed the architecture, wired and assembled the hardware, and tested, adapted and integrated the code on the device.

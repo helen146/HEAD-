@@ -40,7 +40,7 @@ from modules.xrp_link import XRPLink, play_with_jaw
 
 def main():
     print("═" * 50)
-    print("  ΚΕΦΑΛΙ AI — Mellon Lab, Πειραιάς")
+    print("  ΚΕΦΑΛΙ AI — MellonLab, Πειραιάς")
     print("═" * 50)
 
     personas = fortose_prosopa()
