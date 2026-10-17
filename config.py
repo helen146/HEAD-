@@ -52,8 +52,8 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY") or _kleidia.get("ELEVE
 # ─────────────────────────────────────────────
 # ΜΟΝΤΕΛΑ
 # ─────────────────────────────────────────────
-ANTHROPIC_MODEL = "claude-sonnet-4-6"        # online εγκέφαλος
-                                             # πιο γρήγορος: "claude-haiku-5-5"
+ANTHROPIC_MODEL = "claude-haiku-5-5"         # online εγκέφαλος (ο πιο γρήγορος)
+                                             # προηγούμενος: "claude-sonnet-4-6"
 OLLAMA_MODEL = "llama3.2:3b"                 # offline εγκέφαλος (αρχικό σχέδιο —
 OLLAMA_URL = "http://localhost:11434/api/chat"  # δεν χωράει στα 2 GB του Pi 4)
 ELEVEN_MODEL = "eleven_flash_v2_5"           # online φωνή — πιο γρήγορη από
