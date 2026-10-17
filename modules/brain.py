@@ -49,7 +49,7 @@ class Brain:
             self._anthropic = Anthropic(api_key=config.ANTHROPIC_API_KEY)
         resp = self._anthropic.messages.create(
             model=config.ANTHROPIC_MODEL,
-            max_tokens=400,
+            max_tokens=600,   # αρκετό για 6 σύντομες ελληνικές προτάσεις
             system=system_prompt,
             messages=messages,
         )
