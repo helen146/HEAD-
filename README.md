@@ -10,7 +10,7 @@ A child holds a QR card up to the camera, the persona introduces itself, and fro
 |---|---|---|---|
 | 1 | The card | `modules/qr_listener.py` | A background thread reads QR cards from the webcam (OpenCV + pyzbar). The card's text is the persona's file name, e.g. `aristotelis`. |
 | 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the webcam's microphone: recording starts when someone speaks, keeps the 0.3 s before it, and stops after 1.2 s of silence. faster-whisper (`base`, beam size 1 for speed) transcribes it on the Pi. |
-| 3 | Thinking | `modules/brain.py` | The question and the persona's prompt go to the Claude API (`claude-haiku-5-5`, the fastest current model). Each persona answers in at most 5 short sentences, direct answer first. A pre-recorded "thinking" phrase fills the wait. |
+| 3 | Thinking | `modules/brain.py` | The question and the persona's prompt go to the Claude API (`claude-haiku-5-5`, the fastest current model). Each persona answers in at most 5 short sentences, direct answer first. When it fits, the last sentence is an open question for the child to think about, a new angle on the same topic (inquiry-based learning); never when the child is asked to repeat, is upset, or talks about danger. A pre-recorded "thinking" phrase fills the wait. |
 | 4 | Speaking | `modules/voice.py` | ElevenLabs (`eleven_flash_v2_5`) gives each persona its own voice; the answer's voice is made while the thinking phrase is still playing. If the cloud voice fails, Piper speaks locally. |
 | 5 | The jaw | `modules/xrp_link.py`, `xrp/main.py` | While the answer plays, the Pi sends the XRP the loudness of each 50 ms of speech; the XRP turns it into a jaw angle between 0° and 20°. |
 
