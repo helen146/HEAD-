@@ -14,6 +14,13 @@
       3. Μόλις ο μαθητής σωπάσει (~1.2 δευτ.), σταματά
     Χωρίς κουμπιά, χωρίς χρονόμετρα, χωρίς βρόχους σε άδειο δωμάτιο.
 
+ΚΑΤΩΦΛΙ ΦΩΝΗΣ ΠΟΥ ΡΥΘΜΙΖΕΤΑΙ ΜΟΝΟ ΤΟΥ:
+    Στην εκκίνηση το κεφάλι ακούει το δωμάτιο 2 δευτ. και βάζει το κατώφλι
+    φωνής ~3 φορές πάνω από τον θόρυβο του δωματίου. Ήσυχο δωμάτιο → πιο
+    ευαίσθητο (ακούει και τα παιδιά που μιλούν σιγά ή από μακριά).
+    Θορυβώδες → λιγότερο ευαίσθητο (δεν ξεκινά να γράφει με το πρώτο θρόισμα).
+    Ξαναρυθμίζεται μετά από κάθε ήσυχη αναμονή 30 δευτ.
+
 ΓΙΑ ΚΑΛΥΤΕΡΗ ΑΚΡΙΒΕΙΑ:
     • Μοντέλο "base": το "tiny" έκανε λάθη στα ελληνικά, το "small" ήταν
       πολύ αργό στο Pi 4 — το "base" είναι η ισορροπία
@@ -21,7 +28,7 @@
       φτάσει στο whisper
     • initial_prompt στα ελληνικά: «προθερμαίνει» το μοντέλο ώστε να
       περιμένει ελληνικά ΚΑΙ φιλοσοφικό λεξιλόγιο (ονόματα, όροι)
-    • beam_size=5: ψάχνει περισσότερες πιθανές ερμηνείες (πιο ακριβές)
+    • beam_size=1: πιο γρήγορο (5 = πιο προσεκτικό, πιο αργό)
 
 ΟΛΕΣ οι ρυθμίσεις έχουν προεπιλογές ΕΔΩ — δεν χρειάζεται αλλαγή στο
 config.py. Αν όμως ορίσεις κάτι στο config, εκείνο υπερισχύει.
@@ -49,7 +56,12 @@ def _cfg(name, default):
 
 MIC_DEVICE = _cfg("MIC_DEVICE", "plughw:Camera,0")   # με ΟΝΟΜΑ κάρτας, όχι αριθμό
 WHISPER_SIZE = _cfg("WHISPER_SIZE", "base")
-MIC_THRESHOLD = _cfg("MIC_THRESHOLD", 500)     # ευαισθησία (0–32767)
+MIC_THRESHOLD = _cfg("MIC_THRESHOLD", 500)     # αρχική ευαισθησία (0–32767)
+MIC_CALIBRATE = _cfg("MIC_CALIBRATE", True)    # ρύθμιση κατωφλιού από τον θόρυβο του δωματίου
+MIC_CALIBRATE_SEC = _cfg("MIC_CALIBRATE_SEC", 2.0)        # πόσο ακούει στην εκκίνηση
+MIC_CALIBRATE_FACTOR = _cfg("MIC_CALIBRATE_FACTOR", 3.0)  # κατώφλι = θόρυβος × 3 (~+10 dB)
+MIC_THRESHOLD_MIN = _cfg("MIC_THRESHOLD_MIN", 200)        # ποτέ πιο ευαίσθητο από αυτό
+MIC_THRESHOLD_MAX = _cfg("MIC_THRESHOLD_MAX", 2000)       # ποτέ λιγότερο ευαίσθητο από αυτό
 SILENCE_STOP_SEC = _cfg("SILENCE_STOP_SEC", 1.2)
 MAX_SPEECH_SEC = _cfg("MAX_SPEECH_SEC", 15)
 MAX_WAIT_SEC = _cfg("MAX_WAIT_SEC", 30)
@@ -76,6 +88,19 @@ def _rms(raw: bytes) -> float:
     return math.sqrt(sum(s * s for s in samples) / len(samples))
 
 
+def _room_floor(levels):
+    """Ο «θόρυβος του δωματίου»: το 30ό εκατοστημόριο των εντάσεων.
+    Μια φωνή ή ένας χτύπος στη μέση της μέτρησης δεν τον ανεβάζουν."""
+    if not levels:
+        return None
+    s = sorted(levels)
+    return s[int(len(s) * 0.3)]
+
+
+def _threshold_for(floor: float) -> float:
+    return max(MIC_THRESHOLD_MIN, min(MIC_THRESHOLD_MAX, floor * MIC_CALIBRATE_FACTOR))
+
+
 def _normalize(raw: bytes) -> bytes:
     """Ανεβάζει την ένταση σε καλό επίπεδο (αν μίλησε κάποιος σιγά).
     Το whisper ακούει ΠΟΛΥ καλύτερα καθαρό, δυνατό ήχο."""
@@ -98,7 +123,49 @@ class Ears:
     def __init__(self, names_hint=None):
         self._whisper = None
         self.last_stt_sec = None   # πόσο κράτησε η τελευταία αναγνώριση
+        self.threshold = float(MIC_THRESHOLD)   # το κατώφλι φωνής που ισχύει τώρα
+        self.room_floor = None                  # ο θόρυβος του δωματίου, όταν μετρηθεί
         self._hint = HINT_INTRO + (names_hint or HINT_DEFAULT_NAMES) + HINT_EXTRA
+
+    # ---------- Κατώφλι φωνής από τον θόρυβο του δωματίου ----------
+    def calibrate(self):
+        """Ακούει το δωμάτιο λίγα δευτερόλεπτα (πριν μιλήσει ο φιλόσοφος)
+        και ρυθμίζει το κατώφλι φωνής. Αν κάτι πάει στραβά, κρατά την
+        τιμή του config.py — η ακρόαση δουλεύει όπως πριν."""
+        if config.PHASE < 2 or not MIC_CALIBRATE:
+            return
+        n = max(5, int(MIC_CALIBRATE_SEC * 1000 / CHUNK_MS))
+        levels = []
+        try:
+            proc = subprocess.Popen(
+                ["arecord", "-q", "-D", MIC_DEVICE,
+                 "-f", "S16_LE", "-r", str(RATE), "-c", "1", "-t", "raw"],
+                stdout=subprocess.PIPE,
+            )
+            try:
+                for _ in range(n + 2):
+                    chunk = proc.stdout.read(CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    levels.append(_rms(chunk))
+            finally:
+                proc.terminate()
+                proc.wait()
+        except Exception as e:
+            print(f"[Ears] Δεν μέτρησα τον θόρυβο ({e}) — κρατώ κατώφλι {self.threshold:.0f}.")
+            return
+        # Τα 2 πρώτα καρέ (0.2 δευτ.) τα πετάμε: η κάρτα ήχου «ξυπνά» με κλικ
+        self._set_from_levels(levels[2:], "εκκίνηση")
+
+    def _set_from_levels(self, levels, why: str):
+        if len(levels) < 5:
+            return
+        floor = _room_floor(levels)
+        old = self.threshold
+        self.room_floor = floor
+        self.threshold = _threshold_for(floor)
+        print(f"[Ears] Θόρυβος δωματίου ≈ {floor:.0f} → κατώφλι φωνής {self.threshold:.0f} "
+              f"(ήταν {old:.0f}, {why})")
 
     def warmup(self):
         if config.PHASE < 2 or self._whisper is not None:
@@ -166,9 +233,11 @@ class Ears:
 
         speech = bytearray()
         pre_roll = []          # κρατάμε τα τελευταία καρέ ΠΡΙΝ αρχίσει η φωνή
+        wait_levels = []       # οι εντάσεις όσο περιμένουμε (για νέα ρύθμιση κατωφλιού)
         speaking = False
         silence_chunks = 0
         waited_chunks = 0
+        threshold = self.threshold
 
         max_silence = int(SILENCE_STOP_SEC * 1000 / CHUNK_MS)
         max_speech = int(MAX_SPEECH_SEC * 1000 / CHUNK_MS)
@@ -194,16 +263,20 @@ class Ears:
                         pre_roll.pop(0)
 
                     waited_chunks += 1
-                    if level > MIC_THRESHOLD:
+                    wait_levels.append(level)
+                    if level > threshold:
                         speaking = True
                         for c in pre_roll:
                             speech.extend(c)
                         print("   …σε ακούω", flush=True)
                     elif waited_chunks > max_wait:
+                        # 30 δευτ. χωρίς φωνή: καλή στιγμή να ξαναμετρήσουμε το δωμάτιο
+                        if MIC_CALIBRATE:
+                            self._set_from_levels(wait_levels, "μετά από ήσυχη αναμονή")
                         return None
                 else:
                     speech.extend(chunk)
-                    if level < MIC_THRESHOLD:
+                    if level < threshold:
                         silence_chunks += 1
                         if silence_chunks >= max_silence:
                             break

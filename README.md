@@ -9,7 +9,7 @@ A child holds a QR card up to the camera, the persona introduces itself, and fro
 | | Station | File | What happens |
 |---|---|---|---|
 | 1 | The card | `modules/qr_listener.py` | A background thread reads QR cards from the webcam (OpenCV + pyzbar). The card's text is the persona's file name, e.g. `aristotelis`. |
-| 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the webcam's microphone: recording starts when someone speaks, keeps the 0.3 s before it, and stops after 1.2 s of silence. faster-whisper (`base`, beam size 1 for speed) transcribes it on the Pi. |
+| 2 | Listening | `modules/ears.py` | RMS voice-activity detection on the webcam's microphone: recording starts when someone speaks, keeps the 0.3 s before it, and stops after 1.2 s of silence. The voice threshold is set from the room's background noise: measured for 2 s at start-up and again after every 30 s of quiet, so a quiet room hears quiet or distant voices and a noisy room does not start recording on chatter. faster-whisper (`base`, beam size 1 for speed) transcribes it on the Pi. |
 | 3 | Thinking | `modules/brain.py` | The question and the persona's prompt go to the Claude API (`claude-haiku-5-5`, the fastest current model). Each persona answers in at most 5 short sentences, direct answer first. When it fits, the last sentence is an open question for the child to think about, a new angle on the same topic (inquiry-based learning); never when the child is asked to repeat, is upset, or talks about danger. A pre-recorded "thinking" phrase fills the wait. |
 | 4 | Speaking | `modules/voice.py` | ElevenLabs (`eleven_flash_v2_5`) gives each persona its own voice; the answer's voice is made while the thinking phrase is still playing. If the cloud voice fails, Piper speaks locally. |
 | 5 | The jaw | `modules/xrp_link.py`, `xrp/main.py` | While the answer plays, the Pi sends the XRP the loudness of each 50 ms of speech; the XRP turns it into a jaw angle between 0° and 20°. |
@@ -101,8 +101,22 @@ All in `config.py`:
 | `SILENCE_STOP_SEC` | `1.2` | Lower ends recording sooner, but may cut off a child who pauses. |
 | Sentence limit | 5 | Set in each `characters/*.json` prompt; longer answers take longer to write and to voice. |
 
+## Microphone settings
+
+Also in `config.py`:
+
+| Setting | Now | What it does |
+|---|---|---|
+| `MIC_CALIBRATE` | `True` | Sets the voice threshold from the room's noise. `False` keeps `MIC_THRESHOLD` fixed. |
+| `MIC_CALIBRATE_FACTOR` | `3.0` | Threshold = room noise × 3 (about 10 dB above it). Lower hears quieter voices but triggers more on noise. |
+| `MIC_THRESHOLD_MIN` / `MAX` | `200` / `2000` | Safety limits for the automatic threshold. |
+| `MIC_THRESHOLD` | `500` | Starting value, and the value used if the room cannot be measured. |
+
+The log shows each measurement, e.g. `[Ears] Θόρυβος δωματίου ≈ 79 → κατώφλι φωνής 236`.
+
 ## Status and limitations
 
+- **Room calibration is new and not yet tested with children.** It was added after the October 2026 recordings, where quiet or distant voices sometimes never started a recording.
 - **Greek only today.** The speech recognition is told to expect Greek and every persona answers in Greek. English is in progress.
 - **Dialogue needs the internet.** Without it, the head still listens and transcribes, then answers with one fixed line in Piper's voice.
 - **The cloud-voice timeout is 60 s,** far too long for a child to wait. Shortening it is next.

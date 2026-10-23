@@ -58,6 +58,9 @@ def main():
     # Φορτώνουμε το μοντέλο ομιλίας και τον Claude ΤΩΡΑ, όχι μπροστά στα παιδιά
     ears.warmup()
     brain.warmup()
+    # Μετράμε τον θόρυβο του δωματίου ΠΡΙΝ μιλήσει ο φιλόσοφος, και
+    # ρυθμίζουμε ανάλογα το πόσο σιγανή φωνή «ακούει» το κεφάλι
+    ears.calibrate()
 
     persona_id = config.DEFAULT_PERSONA if config.DEFAULT_PERSONA in personas else persona_keys[0]
     history = []
